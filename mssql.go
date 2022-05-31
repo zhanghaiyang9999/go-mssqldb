@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/denisenkom/go-mssqldb/internal/querytext"
-	"github.com/denisenkom/go-mssqldb/msdsn"
+	"github.com/zhanghaiyang9999/go-mssqldb/internal/querytext"
+	"github.com/zhanghaiyang9999/go-mssqldb/msdsn"
 	"github.com/golang-sql/sqlexp"
 )
 
