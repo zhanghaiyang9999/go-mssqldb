@@ -3,7 +3,7 @@ package mssql
 import (
 	"context"
 
-	"github.com/denisenkom/go-mssqldb/msdsn"
+	"github.com/zhanghaiyang9999/go-mssqldb/msdsn"
 )
 
 const (

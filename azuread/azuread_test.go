@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	mssql "github.com/denisenkom/go-mssqldb"
+	mssql "github.com/zhanghaiyang9999/go-mssqldb"
 )
 
 func TestAzureSqlAuth(t *testing.T) {
