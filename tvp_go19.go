@@ -54,15 +54,71 @@ func (tvp TVP) check() error {
 	if valueOf.IsNil() {
 		return ErrorTypeSliceIsEmpty
 	}
-	if reflect.TypeOf(tvp.Value).Elem().Kind() != reflect.Struct {
+	//support Slice
+	if reflect.TypeOf(tvp.Value).Elem().Kind() != reflect.Slice && reflect.TypeOf(tvp.Value).Elem().Kind() != reflect.Struct {
 		return ErrorTypeSlice
 	}
 	return nil
 }
+func (tvp TVP) encode4Slice(schema, name string, columnStr []columnStruct, tvpFieldIndexes []int) ([]byte, error) {
+	preparedBuffer := make([]byte, 0, 20+(10*len(columnStr)))
+	buf := bytes.NewBuffer(preparedBuffer)
+	err := writeBVarChar(buf, "")
+	if err != nil {
+		return nil, err
+	}
 
+	writeBVarChar(buf, schema)
+	writeBVarChar(buf, name)
+	binary.Write(buf, binary.LittleEndian, uint16(len(columnStr)))
+
+	for i, column := range columnStr {
+		binary.Write(buf, binary.LittleEndian, uint32(column.UserType))
+		binary.Write(buf, binary.LittleEndian, uint16(column.Flags))
+		writeTypeInfo(buf, &columnStr[i].ti)
+		writeBVarChar(buf, "")
+	}
+	// The returned error is always nil
+	buf.WriteByte(_TVP_END_TOKEN)
+
+	conn := new(Conn)
+	conn.sess = new(tdsSession)
+	conn.sess.loginAck = loginAckStruct{TDSVersion: verTDS73}
+	stmt := &Stmt{
+		c: conn,
+	}
+	val := reflect.ValueOf(tvp.Value)
+	for i := 0; i < val.Len(); i++ {
+		refStr := reflect.ValueOf(val.Index(i).Interface())
+		buf.WriteByte(_TVP_ROW_TOKEN)
+		for columnStrIdx, _ := range tvpFieldIndexes {
+			tvpVal := reflect.ValueOf(refStr.Index(columnStrIdx).Interface())
+			elemKind := tvpVal.Kind()
+			if elemKind == reflect.Slice && tvpVal.IsNil() {
+				binary.Write(buf, binary.LittleEndian, uint64(_PLP_NULL))
+				continue
+			}
+			tvpValue := tvpVal.Interface()
+			cval, err := convertInputParameter(tvpValue)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert tvp parameter row col: %s", err)
+			}
+			param, err := stmt.makeParam(cval)
+			if err != nil {
+				return nil, fmt.Errorf("failed to make tvp parameter row col: %s", err)
+			}
+			columnStr[columnStrIdx].ti.Writer(buf, param.ti, param.buffer)
+		}
+	}
+	buf.WriteByte(_TVP_END_TOKEN)
+	return buf.Bytes(), nil
+}
 func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldIndexes []int) ([]byte, error) {
 	if len(columnStr) != len(tvpFieldIndexes) {
 		return nil, ErrorWrongTyping
+	}
+	if reflect.TypeOf(tvp.Value).Elem().Kind() == reflect.Slice {
+		return tvp.encode4Slice(schema, name, columnStr, tvpFieldIndexes)
 	}
 	preparedBuffer := make([]byte, 0, 20+(10*len(columnStr)))
 	buf := bytes.NewBuffer(preparedBuffer)
@@ -133,8 +189,60 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 	buf.WriteByte(_TVP_END_TOKEN)
 	return buf.Bytes(), nil
 }
+func (tvp TVP) columnTypes4Slice() ([]columnStruct, []int, error) {
+	val := reflect.ValueOf(tvp.Value)
+	var firstRow interface{}
+	if val.Len() != 0 {
+		firstRow = val.Index(0).Interface()
+	} else {
+		firstRow = reflect.New(reflect.TypeOf(tvp.Value).Elem()).Elem().Interface()
+	}
+	tvpRow := reflect.ValueOf(firstRow)
+	columnCount := tvpRow.Len()
+	defaultValues := make([]interface{}, 0, columnCount)
+	tvpFieldIndexes := make([]int, 0, columnCount)
+	for i := 0; i < columnCount; i++ {
+		tvpFieldIndexes = append(tvpFieldIndexes, i)
+		//field := reflect.TypeOf(tvpRow.Index(i))
+		field := reflect.ValueOf(tvpRow.Index(i).Interface()).Interface()
+		
 
+		defaultValues = append(defaultValues, tvp.createZeroType(reflect.Zero(reflect.TypeOf(field)).Interface()))
+
+	}
+	conn := new(Conn)
+	conn.sess = new(tdsSession)
+	conn.sess.loginAck = loginAckStruct{TDSVersion: verTDS73}
+	stmt := &Stmt{
+		c: conn,
+	}
+
+	columnConfiguration := make([]columnStruct, 0, columnCount)
+	for index, val := range defaultValues {
+		cval, err := convertInputParameter(val)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to convert tvp parameter row %d col %d: %s", index, val, err)
+		}
+		param, err := stmt.makeParam(cval)
+		if err != nil {
+			return nil, nil, err
+		}
+		column := columnStruct{
+			ti: param.ti,
+		}
+		switch param.ti.TypeId {
+		case typeNVarChar, typeBigVarBin:
+			column.ti.Size = 0
+		}
+		columnConfiguration = append(columnConfiguration, column)
+	}
+
+	return columnConfiguration, tvpFieldIndexes, nil
+}
 func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
+	if reflect.TypeOf(tvp.Value).Elem().Kind() == reflect.Slice {
+		return tvp.columnTypes4Slice()
+	}
 	val := reflect.ValueOf(tvp.Value)
 	var firstRow interface{}
 	if val.Len() != 0 {

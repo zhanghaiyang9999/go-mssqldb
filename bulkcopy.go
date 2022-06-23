@@ -389,7 +389,7 @@ func (b *Bulk) makeParam(val DataValue, col columnStruct) (res param, err error)
 		}
 		res.ti.Size = len(res.buffer)
 
-	case typeVarChar, typeBigVarChar, typeText, typeChar, typeBigChar:
+	case typeVarChar, typeBigVarChar, typeText, typeChar, typeBigChar,typeXml:
 		switch val := val.(type) {
 		case string:
 			res.buffer = []byte(val)

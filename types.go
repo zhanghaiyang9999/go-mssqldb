@@ -1226,6 +1226,8 @@ func makeDecl(ti typeInfo) string {
 		return "text"
 	case typeNText:
 		return "ntext"
+	case typeXml:
+		return "xml"
 	case typeUdt:
 		return ti.UdtInfo.TypeName
 	case typeGuid:
